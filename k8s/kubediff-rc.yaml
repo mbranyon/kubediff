@@ -38,7 +38,7 @@ spec:
         - name: repo
           mountPath: /data
       - name: kubediff
-        image: weaveworks/kubediff
+        image: mbranyon/kubediff
         imagePullPolicy: IfNotPresent
         args:
         - -period=60s

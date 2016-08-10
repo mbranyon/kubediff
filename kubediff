@@ -7,6 +7,8 @@ import os
 import subprocess
 import sys
 import yaml
+from pprint import pprint
+
 
 
 def iter_files(paths):
@@ -58,7 +60,11 @@ class KubeObject(object):
     if kubeconfig is not None:
       args.append("--kubeconfig=%s" % kubeconfig)
 
-    running = subprocess.check_output(["kubectl", "get"] + args + [self.kind, self.name], stderr=subprocess.STDOUT)
+    try:
+      running = subprocess.check_output(["kubectl", "get"] + args + [self.kind, self.name], stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError:
+      return "---"
+
     return yaml.load(running)
 
 
@@ -126,7 +132,7 @@ def check_file(printer, path, kubeconfig=None):
   :param str path: The YAML file to test.
   :param str kubeconfig: Path to a Kubernetes configuration file.
       If None, we use the default.
-  :return: Number of differences found.
+  :return: 1 if differences found.
   """
   with open(path, 'r') as stream:
     expected = yaml.load(stream)
@@ -141,11 +147,18 @@ def check_file(printer, path, kubeconfig=None):
     printer.diff(kube_obj, broken_cluster(e.output))
     return
 
-  differences = 0
-  for difference in diff("", expected, running):
-    differences += 1
-    printer.diff(kube_obj, difference)
-  return differences
+  """casting a generator into a list to see if there are 
+       differences
+     if there are differences apply those differences""" 
+  kubediff = diff("", expected, running)
+  if list(kubediff):
+    differences = 0
+    for difference in diff("", expected, running):
+      differences += 1
+      printer.diff(kube_obj, difference)
+    return differences
+  else:
+    return 0
 
 
 class StdoutPrinter(object):
@@ -187,7 +200,14 @@ def check_files(paths, printer, kubeconfig=None):
     _, extension = os.path.splitext(path)
     if extension != ".yaml":
       continue
-    differences += check_file(printer, path, kubeconfig=kubeconfig)
+
+    difference = check_file(printer, path, kubeconfig=kubeconfig)
+    if difference:
+      print " ### applying %s" % (path)
+      result = subprocess.check_output(["kubectl", "apply", "-f", path], stderr=subprocess.STDOUT)
+      print " ### %s" % (result.rstrip())
+     
+    differences += difference
 
   printer.finish()
   return bool(differences)
